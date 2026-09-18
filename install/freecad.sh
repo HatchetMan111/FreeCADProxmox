@@ -289,7 +289,8 @@ guest_exec(){
 # OS-Disk: Debian-Cloud-Image laden + importieren (vollautomatisch, inkl. Cloud-Init).
 # Fallback: vorhandene Debian-ISO als CDROM einhängen (dann manuell installieren).
 vm_attach_os(){
-  local img_dir="/var/lib/vz/template/iso" img_file="${img_dir}/${CLOUD_IMG}"
+  local img_dir="/var/lib/vz/template/iso"
+  local img_file="${img_dir}/${CLOUD_IMG}"
   mkdir -p "$img_dir"
   if [[ ! -s "$img_file" ]]; then
     log "Lade Debian-Cloud-Image (~300 MB)…"
