@@ -28,6 +28,9 @@ BRIDGE="vmbr0"
 GPU_MODE="virtio-gl"         # none | virtio-gl | passthrough | vgpu
 VM_ISO="local:iso/debian-12-netinst.iso"
 CLOUD_IMG_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+CLOUD_IMG="debian-12-generic-amd64.qcow2"
+CIUSER="root"                # Cloud-Init Login-User in der VM
+CIPASS="freecad"             # Cloud-Init Passwort (nach Install ändern!)
 FREECAD_VERSION="1.1.3"      # system | 1.0.1 | 1.1.2 | 1.1.3 | weekly
 GITHUB_USER="HatchetMan111"
 GITHUB_REPO="FreeCADProxmox"
@@ -83,6 +86,9 @@ Optionen:
   --bridge B           Bridge (Default $BRIDGE)
   --gpu MODE           none|virtio-gl|passthrough|vgpu (Default $GPU_MODE)
   --freecad-version V  system|1.0.1|1.1.2|1.1.3|weekly (Default $FREECAD_VERSION)
+  --iso ISO            Debian-ISO (Storage:Pfad) als Fallback wenn Cloud-Image scheitert (Default $VM_ISO)
+  --ciuser USER        Cloud-Init Login-User (Default $CIUSER)
+  --cipass PASS        Cloud-Init Passwort (Default: gesetzt, nach Install ändern!)
   --payload-only       nur Gast-Installation (in VM/LXC direkt ausführen)
   --uninstall          Container/VM entfernen
   --debug              set -x + volle Logs
@@ -106,6 +112,9 @@ while [[ $# -gt 0 ]]; do
     --bridge) BRIDGE="$2"; shift 2;;
     --gpu) GPU_MODE="$2"; shift 2;;
     --freecad-version) FREECAD_VERSION="$2"; shift 2;;
+    --iso) VM_ISO="$2"; shift 2;;
+    --ciuser) CIUSER="$2"; shift 2;;
+    --cipass) CIPASS="$2"; shift 2;;
     --payload-only) PAYLOAD_ONLY=1; shift;;
     --uninstall) UNINSTALL=1; shift;;
     --debug) DEBUG=1; shift;;
@@ -268,19 +277,87 @@ if qm status "$VMID" >/dev/null 2>&1; then
   while qm status "$VMID" >/dev/null 2>&1; do VMID=$((VMID+1)); done
   log "Neue VMID: $VMID"
 fi
+
+# Helper: Befehl im Gast via Guest-Agent (probiert erst mit, dann ohne "--")
+guest_exec(){
+  if qm guest exec "$VMID" -- "$@" >/dev/null 2>&1; then return 0; fi
+  qm guest exec "$VMID" "$@"
+}
+
+# OS-Disk: Debian-Cloud-Image laden + importieren (vollautomatisch, inkl. Cloud-Init).
+# Fallback: vorhandene Debian-ISO als CDROM einhängen (dann manuell installieren).
+vm_attach_os(){
+  local img_dir="/var/lib/vz/template/iso" img_file="${img_dir}/${CLOUD_IMG}"
+  mkdir -p "$img_dir"
+  if [[ ! -s "$img_file" ]]; then
+    log "Lade Debian-Cloud-Image (~300 MB)…"
+    if ! wget -O "$img_file" -c "$CLOUD_IMG_URL" 2>&1 | tail -2; then
+      warn "Cloud-Image-Download fehlgeschlagen — versuche curl…"
+      curl -fSL -o "$img_file" -C - "$CLOUD_IMG_URL" || rm -f "$img_file"
+    fi
+  else
+    log "Cloud-Image bereits vorhanden (idempotent, kein Re-Download)."
+  fi
+  if [[ -s "$img_file" ]]; then
+    log "Importiere Cloud-Image nach $STORAGE…"
+    local out diskname
+    out=$(qm importdisk "$VMID" "$img_file" "$STORAGE" 2>&1) || {
+      echo "$out" >&2
+      warn "importdisk fehlgeschlagen — nutze ISO-Fallback."
+      vm_attach_iso_fallback
+      return 0
+    }
+    echo "$out" | tail -3
+    diskname=$(echo "$out" | grep -oE "vm-${VMID}-disk-[0-9]+" | tail -1)
+    [[ -z "$diskname" ]] && diskname="vm-${VMID}-disk-1"
+    qm set "$VMID" --scsi0 "${STORAGE}:${diskname}"
+    qm resize "$VMID" scsi0 "${DISK}G" || warn "resize auf ${DISK}G fehlgeschlagen (weiter mit Image-Größe)"
+    qm set "$VMID" --boot c --bootdisk scsi0 \
+      --ciuser "$CIUSER" --cipassword "$CIPASS" --ipconfig0 ip=dhcp
+    ok "OS-Disk bereit: scsi0=${diskname} (${DISK}G), Cloud-Init: user=$CIUSER / dhcp."
+  else
+    warn "Kein Cloud-Image verfügbar — nutze ISO-Fallback."
+    vm_attach_iso_fallback
+  fi
+}
+
+vm_attach_iso_fallback(){
+  local iso_path=""
+  if command -v pvesm >/dev/null 2>&1; then
+    iso_path=$(pvesm path "$VM_ISO" 2>/dev/null || true)
+  fi
+  [[ -z "$iso_path" ]] && iso_path="/var/lib/vz/template/iso/$(basename "$VM_ISO" | cut -d: -f2)"
+  if [[ ! -f "$iso_path" ]]; then
+    die "Weder Cloud-Image noch ISO gefunden. Lade eine Debian-12-netinst-ISO nach /var/lib/vz/template/iso/ und rufe erneut auf (nächste freie VMID wird automatisch genommen). Komplette Kette oben, Debug: bash -x … -- --debug"
+  fi
+  qm set "$VMID" --scsi0 "${STORAGE}:${DISK}" --ide0 "${VM_ISO},media=cdrom" --boot "order=ide0;scsi0"
+  warn "ISO-Fallback: Debian manuell in der VM-Konsole installieren, danach in der VM ausführen:"
+  warn "  bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
+  ISO_FALLBACK=1
+}
+ISO_FALLBACK=0
+
 log "Lege VM $VMID an (KVM, FreeCAD-GUI + GPU)…"
 qm create "$VMID" --name "$HOSTNAME" --cores "$CPU" --memory "$RAM" \
   --net0 virtio,bridge="$BRIDGE" --scsihw virtio-scsi-pci \
-  --scsi0 "${STORAGE}:${DISK}" --ide2 "${STORAGE}:cloudinit" \
-  --boot c --bootdisk scsi0 --serial0 socket --vga serial0 \
+  --ide2 "${STORAGE}:cloudinit" \
+  --serial0 socket --vga serial0 \
   --agent enabled=1 --onboot 1 --ostype l26
-ok "VM $VMID erstellt."
+ok "VM $VMID erstellt (Hülle)."
+vm_attach_os
 
 # GPU-Auto-Versuch (wenn nicht automatisch geht -> README §4, manueller vGPU-Weg)
 case "$GPU_MODE" in
   virtio-gl)
-    qm set "$VMID" --vga virtio-gl || warn "virtio-gl konnte nicht gesetzt werden (Host ohne VirGL — weiter mit Standard-VGA, KasmVNC nutzt llvmpipe)"
-    ok "GPU-Modus virtio-gl gesetzt (3D ohne Passthrough; reicht für FreeCAD-Browser-Desktop)."
+    log "Installiere virtio-gl Host-Libs (fixt 'missing libraries for virtio-gl')…"
+    (apt-get update && apt-get install -y libgl1 libegl1) 2>&1 | tail -2 || \
+      warn "libgl1/libegl1 konnten nicht installiert werden — versuche virtio-gl trotzdem."
+    if qm set "$VMID" --vga virtio-gl; then
+      ok "GPU-Modus virtio-gl gesetzt (3D ohne Passthrough; reicht für FreeCAD-Browser-Desktop)."
+    else
+      warn "virtio-gl abgelehnt — falle auf Standard-VGA zurück (KasmVNC nutzt llvmpipe)."
+      qm set "$VMID" --vga std || true
+    fi
     ;;
   passthrough)
     if lspci -nn 2>/dev/null | grep -qi "nvidia\|amd.*vga"; then
@@ -302,26 +379,57 @@ case "$GPU_MODE" in
   *) warn "Unbekannter GPU-Modus $GPU_MODE — weiter mit Standard-VGA.";;
 esac
 
-qm start "$VMID" || true
+qm start "$VMID"
 ok "VM $VMID gestartet (onboot: 1)."
 
-echo ""
-echo "================ NÄCHSTER SCHRITT (in der VM) ================"
-echo "Die VM braucht noch die Gast-Installation (Debian 12 + FreeCAD + Web UI)."
-echo "Führe IN DER VM (Konsole/SSH, als root) aus:"
-echo ""
-echo "  bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
-echo ""
-echo "Danach: Manager http://<VM-IP>:${APP_PORT}  |  Desktop http://<VM-IP>:${DESKTOP_PORT}"
-echo "VM-IP ermitteln: qm guest cmd $VMID network-get-interfaces  (Guest-Agent)  oder  qm config $VMID"
-echo "vGPU geht nicht automatisch? -> README §4 (manueller Weg: vGPU-Manager, mdev, hostpci, GRID-Guest-Treiber)."
-echo "=============================================================="
-
-# Falls Guest-Agent schon antwortet, Payload automatisch versuchen (best effort)
-if qm guest cmd "$VMID" ping >/dev/null 2>&1; then
-  log "Guest-Agent antwortet — versuche automatische Payload-Installation…"
-  qm guest exec "$VMID" -- bash -c "wget -qLO /tmp/fc.sh $GITHUB_BASE/install/freecad.sh && bash /tmp/fc.sh --payload-only --freecad-version $FREECAD_VERSION" || \
-    warn "Auto-Payload via Guest-Agent fehlgeschlagen — bitte manuell in der VM ausführen (Befehl oben)."
-else
-  warn "Guest-Agent antwortet noch nicht — bitte Payload manuell in der VM ausführen (Befehl oben)."
+if [[ "$ISO_FALLBACK" == "1" ]]; then
+  echo ""
+  echo "================ MANUELL INSTALLIEREN (ISO-Fallback) ================"
+  echo "1) Proxmox-WebUI -> VM $VMID -> Konsole -> Debian installieren."
+  echo "2) In der VM (als root):"
+  echo "     bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
+  echo "3) Danach: Manager http://<VM-IP>:${APP_PORT} | Desktop http://<VM-IP>:${DESKTOP_PORT}"
+  echo "=============================================================="
+  exit 0
 fi
+
+# Auf Guest-Agent warten (Cloud-Image bootet 1-3 Min), dann Payload im Hintergrund starten
+log "Warte auf Guest-Agent (bis ~5 Min)…"
+AGENT_OK=0
+for i in $(seq 1 60); do
+  if qm guest cmd "$VMID" ping >/dev/null 2>&1; then AGENT_OK=1; break; fi
+  sleep 5
+  [[ $((i % 6)) -eq 0 ]] && log "… warte noch (Versuch $i/60)"
+done
+if [[ "$AGENT_OK" != "1" ]]; then
+  warn "Guest-Agent antwortet nicht (qemu-guest-agent im Image? Netzwerk/DHCP prüfen: qm config $VMID)."
+  echo "Manuell in der VM (Login $CIUSER, Konsole/SSH):"
+  echo "  bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
+  exit 1
+fi
+ok "Guest-Agent antwortet."
+
+log "Starte Gast-Payload im Hintergrund (Log in VM: /var/log/fc-payload.log)…"
+guest_exec bash -c "(wget -qLO /tmp/fc.sh ${GITHUB_BASE}/install/freecad.sh || curl -fsSL -o /tmp/fc.sh ${GITHUB_BASE}/install/freecad.sh) && nohup bash /tmp/fc.sh --payload-only --freecad-version ${FREECAD_VERSION} > /var/log/fc-payload.log 2>&1 & echo gestartet" || \
+  warn "Payload-Start via Guest-Agent fehlgeschlagen — manuell in der VM ausführen (Befehl oben)."
+
+# Auf Web UI warten: Gast-IP via Agent ermitteln, von Host aus pollen
+log "Warte auf Web UI (bis ~15 Min, AppImage ~800 MB)…"
+VM_IP=""
+for i in $(seq 1 90); do
+  if [[ -z "$VM_IP" ]]; then
+    VM_IP=$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | grep -oE '"ip-address"[[:space:]]*:[[:space:]]*"([0-9]{1,3}\.){3}[0-9]{1,3}"' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | head -1 || true)
+    [[ -n "$VM_IP" ]] && log "Gast-IP: $VM_IP"
+  fi
+  if [[ -n "$VM_IP" ]] && curl -fsS "http://${VM_IP}:${APP_PORT}/healthz" >/dev/null 2>&1; then
+    ok "Web UI antwortet."
+    echo "Fertig! Manager: http://${VM_IP}:${APP_PORT}  |  Desktop (KasmVNC): http://${VM_IP}:${DESKTOP_PORT}"
+    echo "VM-Login (Cloud-Init): user=$CIUSER — Passwort bitte nach Install ändern!"
+    exit 0
+  fi
+  sleep 10
+  [[ $((i % 6)) -eq 0 ]] && log "… warte noch (Versuch $i/90)"
+done
+echo "=========== PAYLOAD-LOG (vollständig, aus der VM) ==========="
+guest_exec tail -n 100 /var/log/fc-payload.log || true
+die "Web UI antwortet nicht nach ~15 Min. Log oben prüfen; in der VM: journalctl -u freecad.service -n 100 --no-pager. Debug: bash -x … -- --debug"

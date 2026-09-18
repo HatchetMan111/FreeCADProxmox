@@ -28,7 +28,7 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADPr
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADProxmox/main/install/freecad.sh)" -- --lxc --ctid 150 --cpu 2 --ram 2048 --disk 8
 ```
 
-**In der VM (Gast-Installation, nach `qm create` — steht auch im Installer-Output):**
+**Nur Fallback manuell in der VM (normal läuft die Gast-Installation automatisch via Guest-Agent):**
 ```bash
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADProxmox/main/install/freecad.sh)" -- --payload-only --freecad-version 1.1.3
 ```
@@ -53,19 +53,25 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADPr
 ## 2. Was der Installer tut
 
 1. Prüft root + `qm`/`pct`, parst Args, `set -euo pipefail` + `trap ERR` mit **kompletter Fehlerkette** (Exit-Code, Zeile, Kommando, Stack, `pveversion`, VM/CT-Status).
-2. **VM (Default):** `qm create … --onboot 1`, GPU-Auto-Versuch (`virtio-gl` / Vorlage für `hostpci`), `qm start`. Gast-Payload danach in der VM via `--payload-only` (oder automatisch via Guest-Agent, best effort).
+2. **VM (Default):** `qm create … --onboot 1` **ohne leere Disk**, dann vollautomatisch: Debian-Cloud-Image laden (`/var/lib/vz/template/iso/`, idempotent) → `qm importdisk` → `qm resize` auf `${DISK}G` → Cloud-Init (`--ciuser/--cipassword/--ipconfig0 dhcp`) → GPU-Auto-Versuch (`virtio-gl` inkl. Host-Libs `libgl1`/`libegl1`, fixt `missing libraries for 'virtio-gl'`) → `qm start` → warten auf Guest-Agent → Payload **automatisch** im Hintergrund (`/var/log/fc-payload.log` in der VM) → Gast-IP via Agent ermitteln → `curl`-Poll auf `:8080/healthz` bis OK.
+   Fallback ohne Netz für Cloud-Image: vorhandene Debian-ISO als CDROM (`--iso`, `--boot order=ide0`), dann manuell installieren.
    **LXC:** Debian-Template via `pveam` (idempotent), `pct create … --onboot 1`, optional `/dev/dri`-Passthrough, `pct start`, Payload via `pct exec` direkt.
 3. **Payload (Gast, idempotent):** Python3+venv, `app/requirements.txt` (FastAPI/uvicorn), `app/main.py` + `systemd/freecad.service` + `freecad-desktop.service` von GitHub, FreeCAD (apt oder AppImage der gewählten Release-Version von `github.com/FreeCAD/FreeCAD/releases`), XFCE + KasmVNC (best effort), `systemctl enable --now`.
 4. Öffnet Ports 8080/6080 (bind `0.0.0.0`), **verifiziert**: `systemctl is-active` + `curl localhost:8080/healthz` (6 Versuche, bei Fehler volles `journalctl` + `ss -tlnp`), druckt finale URLs + Gast-IP.
 
-Erwartete Ausgabe (VM):
+Erwartete Ausgabe (VM, neu):
 ```
 [freecad] Modus: vm (CPU=4 RAM=8192MB Disk=30GB GPU=virtio-gl FreeCAD=1.1.3)
-[OK] VM 200 erstellt.
-[OK] VM 200 gestartet (onboot: 1).
-================ NÄCHSTER SCHRITT (in der VM) ================
-  bash -c "$(wget -qLO - .../install/freecad.sh)" -- --payload-only --freecad-version 1.1.3
+[OK] VM 201 erstellt (Hülle).          # 200 belegt -> nächste freie, kein Abbruch
+[OK] OS-Disk bereit: scsi0=vm-201-disk-1 (30G), Cloud-Init: user=root / dhcp.
+[OK] GPU-Modus virtio-gl gesetzt (...)
+[OK] VM 201 gestartet (onboot: 1).
+[OK] Guest-Agent antwortet.
+[OK] Web UI antwortet.
+Fertig! Manager: http://192.168.1.61:8080  |  Desktop (KasmVNC): http://192.168.1.61:6080
 ```
+
+> **Alte kaputte VM 200 (leere Disk, kein OS) aufräumen:** `qm stop 200; qm destroy 200` — danach Einzeiler erneut laufen lassen (nimmt automatisch die nächste freie ID). Die `WARNING: thin pools…`-Meldungen sind harmlos (Overprovisioning-Hinweis von LVM). VM-Login per Konsole: `root` / `freecad` (Cloud-Init, `--ciuser`/`--cipass`, nach Install ändern).
 
 Erwartete Ausgabe (Payload in VM/LXC):
 ```
