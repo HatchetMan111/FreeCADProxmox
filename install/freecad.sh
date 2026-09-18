@@ -235,9 +235,10 @@ if [[ "$MODE" == "lxc" ]]; then
     pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" || die "Template-Download fehlgeschlagen"
   fi
   # ------ Belegte CTID -> automatisch nächste freie nehmen (kein Abbruch, kein Überschreiben) -----
-  if pct status "$CTID" >/dev/null 2>&1; then
-    warn "CT $CTID ist belegt – nehme automatisch die nächste freie ID."
-    while pct status "$CTID" >/dev/null 2>&1; do CTID=$((CTID+1)); done
+  # VMs und CTs teilen einen ID-Raum -> immer BEIDE prüfen!
+  if pct status "$CTID" >/dev/null 2>&1 || qm status "$CTID" >/dev/null 2>&1; then
+    warn "ID $CTID ist belegt (CT oder VM) – nehme automatisch die nächste freie ID."
+    while pct status "$CTID" >/dev/null 2>&1 || qm status "$CTID" >/dev/null 2>&1; do CTID=$((CTID+1)); done
     log "Neue CTID: $CTID"
   fi
   pct create "$CTID" "${TEMPLATE_STORAGE}:vztmpl/${TEMPLATE}" \
@@ -272,9 +273,10 @@ fi
 
 # ---------- VM-Pfad (empfohlen für FreeCAD) ----------
 # ------ Belegte VMID -> automatisch nächste freie nehmen (kein Abbruch, kein Überschreiben) -----
-if qm status "$VMID" >/dev/null 2>&1; then
-  warn "VM $VMID ist belegt – nehme automatisch die nächste freie ID."
-  while qm status "$VMID" >/dev/null 2>&1; do VMID=$((VMID+1)); done
+# VMs und CTs teilen einen ID-Raum -> immer BEIDE prüfen (qm + pct)!
+if qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; then
+  warn "ID $VMID ist belegt (VM oder CT) – nehme automatisch die nächste freie ID."
+  while qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; do VMID=$((VMID+1)); done
   log "Neue VMID: $VMID"
 fi
 
