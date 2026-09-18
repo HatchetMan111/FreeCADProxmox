@@ -1,0 +1,19 @@
+[Unit]
+Description=FreeCAD Desktop via KasmVNC (:6080)
+After=network-online.target freecad.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=DISPLAY=:99
+ExecStartPre=-/bin/sh -c 'rm -f /tmp/.X99-lock'
+# KasmVNC stellt XFCE+FreeCAD im Browser bereit. Falls kasmvnc fehlt, läuft der Service in Retry.
+ExecStart=/bin/sh -c 'if command -v kasmvncserver >/dev/null; then kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -SecurityTypes None -- /usr/bin/startxfce4; else echo "kasmvnc fehlt - siehe README §4/§5"; sleep 30; exit 1; fi'
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

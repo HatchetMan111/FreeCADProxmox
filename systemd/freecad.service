@@ -1,0 +1,19 @@
+[Unit]
+Description=FreeCAD Proxmox Manager (Web UI :8080)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/freecad-manager
+Environment=APP_PORT=8080
+Environment=BASE_DIR=/opt/freecad
+ExecStart=/opt/freecad-manager/venv/bin/python /opt/freecad-manager/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
