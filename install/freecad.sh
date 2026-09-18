@@ -490,10 +490,22 @@ guest_exec bash -c "(wget -qLO /tmp/fc.sh ${GITHUB_BASE}/install/freecad.sh || c
 
 # Auf Web UI warten: Gast-IP via Agent ermitteln, von Host aus pollen
 log "Warte auf Web UI (bis ~15 Min, AppImage ~800 MB)…"
+# Gast-IP ermitteln: erst via Agent-Interfaces, Fallback via ip-Befehl im Gast
+get_guest_ip(){
+  local ip=""
+  ip=$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | grep -oE '"ip-address"[[:space:]]*:[[:space:]]*"([0-9]{1,3}\.){3}[0-9]{1,3}"' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | head -1 || true)
+  if [[ -z "$ip" ]]; then
+    ip=$(qm guest exec "$VMID" -- ip -4 -o addr show 2>/dev/null | grep -oE 'inet ([0-9]{1,3}\.){3}[0-9]{1,3}' | awk '{print $2}' | grep -v '^127\.' | head -1 || true)
+  fi
+  if [[ -z "$ip" ]]; then
+    ip=$(qm guest exec "$VMID" ip -4 -o addr show 2>/dev/null | grep -oE 'inet ([0-9]{1,3}\.){3}[0-9]{1,3}' | awk '{print $2}' | grep -v '^127\.' | head -1 || true)
+  fi
+  echo "$ip"
+}
 VM_IP=""
 for i in $(seq 1 90); do
   if [[ -z "$VM_IP" ]]; then
-    VM_IP=$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | grep -oE '"ip-address"[[:space:]]*:[[:space:]]*"([0-9]{1,3}\.){3}[0-9]{1,3}"' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | head -1 || true)
+    VM_IP=$(get_guest_ip || true)
     [[ -n "$VM_IP" ]] && log "Gast-IP: $VM_IP"
   fi
   if [[ -n "$VM_IP" ]] && curl -fsS "http://${VM_IP}:${APP_PORT}/healthz" >/dev/null 2>&1; then
@@ -503,8 +515,19 @@ for i in $(seq 1 90); do
     exit 0
   fi
   sleep 10
-  [[ $((i % 6)) -eq 0 ]] && log "… warte noch (Versuch $i/90)"
+  if [[ $((i % 6)) -eq 0 ]]; then
+    log "… warte noch (Versuch $i/90)"
+  fi
+  # Alle ~2 Min: Fortschritt aus dem Gast zeigen (Payload-Log + Service-Status)
+  if [[ $((i % 12)) -eq 0 ]]; then
+    echo "--- Gast-Fortschritt (Versuch $i/90) ---"
+    guest_exec tail -n 5 /var/log/fc-payload.log 2>/dev/null || echo "(Payload-Log noch nicht lesbar)"
+    guest_exec systemctl is-active freecad.service 2>/dev/null || echo "(Manager-Service noch nicht aktiv)"
+  fi
 done
 echo "=========== PAYLOAD-LOG (vollständig, aus der VM) ==========="
 guest_exec tail -n 100 /var/log/fc-payload.log || true
+echo "=========== SERVICE + PORTS (aus der VM) ==========="
+guest_exec systemctl status freecad.service --no-pager 2>/dev/null || true
+guest_exec ss -tlnp 2>/dev/null || guest_exec netstat -tlnp 2>/dev/null || true
 die "Web UI antwortet nicht nach ~15 Min. Log oben prüfen; in der VM: journalctl -u freecad.service -n 100 --no-pager. Debug: bash -x … -- --debug"
