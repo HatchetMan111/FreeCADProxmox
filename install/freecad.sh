@@ -95,7 +95,8 @@ Optionen:
   -h|--help            Hilfe
 
   Hinweis: Ist CTID/VMID belegt, nimmt das Script automatisch die nächste
-  freie ID (kein Überschreiben, kein Abbruch).
+  freie ID (kein Überschreiben, kein Abbruch). Eigene FreeCAD-VMs
+  (Name freecad) werden wiederverwendet statt neu gebaut.
 EOF
 }
 
@@ -123,6 +124,81 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$DEBUG" == "1" ]] && set -x
+
+# ================= VM-Helfer (IDs, Guest-Agent) =================
+VM_REUSE=0
+# Eigene VM wiederverwenden, fremd belegte ID -> nächste freie (qm+pct teilen ID-Raum)
+resolve_vmid(){
+  VM_REUSE=0
+  if qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; then
+    if qm config "$VMID" 2>/dev/null | grep -qE "^name: ${HOSTNAME}$"; then
+      VM_REUSE=1
+      log "VM $VMID ist unsere eigene ($HOSTNAME) — wiederverwenden (kein Neuaufbau)."
+      return 0
+    fi
+    warn "ID $VMID ist belegt (VM oder CT) – nehme automatisch die nächste freie ID."
+    while qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; do VMID=$((VMID+1)); done
+    log "Neue VMID: $VMID"
+  fi
+}
+# Cloud-Init-Snippet: qemu-guest-agent installieren+starten (Debian-Images haben ihn oft nicht)
+ensure_agent_snippet(){
+  local store snipfile hostpath
+  store=$(pvesm status --content snippets 2>/dev/null | awk 'NR>1 && $3=="active" {print $1; exit}' || true)
+  [[ -z "$store" ]] && store="local"
+  snipfile="fc-agent-${VMID}.yaml"
+  hostpath=$(pvesm path "${store}:snippets/${snipfile}" 2>/dev/null || true)
+  if [[ -z "$hostpath" ]]; then
+    warn "Snippet-Storage ${store} liefert keinen Pfad — weiter ohne Cloud-Init-Snippet (Agent-Kanal bleibt aktiv)."
+    return 0
+  fi
+  mkdir -p "$(dirname "$hostpath")"
+  cat > "$hostpath" <<'YAML'
+#cloud-config
+# Stellt sicher, dass der QEMU Guest Agent läuft (Installer braucht ihn für Payload + IP).
+packages:
+  - qemu-guest-agent
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+YAML
+  if qm set "$VMID" --cicustom "user=${store}:snippets/${snipfile}"; then
+    ok "Cloud-Init-Snippet gesetzt (${store}:snippets/${snipfile} → qemu-guest-agent)."
+  else
+    warn "cicustom konnte nicht gesetzt werden — weiter ohne Snippet."
+    return 0
+  fi
+  qm cloudinit update "$VMID" >/dev/null 2>&1 || true
+}
+# Auf Guest-Agent warten; bei Fehlschlag volle Diagnose + Optionen, Return 1
+wait_guest_agent(){
+  log "Warte auf Guest-Agent (bis ~5 Min)…"
+  local i ping_err=""
+  for i in $(seq 1 60); do
+    if ping_err=$(qm guest cmd "$VMID" ping 2>&1); then
+      return 0
+    fi
+    sleep 5
+    [[ $((i % 6)) -eq 0 ]] && log "… warte noch (Versuch $i/60)"
+  done
+  warn "Guest-Agent antwortet nicht."
+  echo "--- Diagnose ---"
+  qm status "$VMID" 2>&1 || true
+  echo "--- qm config (ohne Passwort) ---"
+  qm config "$VMID" 2>/dev/null | grep -v cipassword || true
+  echo "--- letzter ping-Fehler ---"
+  echo "$ping_err" | tail -5
+  echo ""
+  echo "Weiter mit einer Option:"
+  echo "  A) Agent in der VM-Konsole nachinstallieren (Proxmox-WebUI -> VM $VMID -> Konsole, Login $CIUSER):"
+  echo "       apt-get update && apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent"
+  echo "     Danach Installer erneut laufen lassen (VM $VMID wird wiederverwendet, kein Neuaufbau)."
+  echo "  B) Neu aufbauen (Cloud-Init installiert den Agent jetzt automatisch):"
+  echo "       bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --uninstall --vmid $VMID"
+  echo "       bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\""
+  echo "  C) Ganz manuell in der VM (ohne Agent):"
+  echo "     bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
+  return 1
+}
 
 # ================= Gast-Payload (idempotent, läuft in LXC *und* VM/Debian) =================
 payload_install(){
@@ -274,11 +350,7 @@ fi
 # ---------- VM-Pfad (empfohlen für FreeCAD) ----------
 # ------ Belegte VMID -> automatisch nächste freie nehmen (kein Abbruch, kein Überschreiben) -----
 # VMs und CTs teilen einen ID-Raum -> immer BEIDE prüfen (qm + pct)!
-if qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; then
-  warn "ID $VMID ist belegt (VM oder CT) – nehme automatisch die nächste freie ID."
-  while qm status "$VMID" >/dev/null 2>&1 || pct status "$VMID" >/dev/null 2>&1; do VMID=$((VMID+1)); done
-  log "Neue VMID: $VMID"
-fi
+resolve_vmid
 
 # Helper: Befehl im Gast via Guest-Agent (probiert erst mit, dann ohne "--")
 guest_exec(){
@@ -340,6 +412,11 @@ vm_attach_iso_fallback(){
 }
 ISO_FALLBACK=0
 
+if [[ "$VM_REUSE" == "1" ]]; then
+  log "Reuse: vorhandene eigene VM $VMID wird weiterverwendet (kein Neuaufbau)."
+  qm set "$VMID" --agent enabled=1 --onboot 1 || true
+else
+
 log "Lege VM $VMID an (KVM, FreeCAD-GUI + GPU)…"
 qm create "$VMID" --name "$HOSTNAME" --cores "$CPU" --memory "$RAM" \
   --net0 virtio,bridge="$BRIDGE" --scsihw virtio-scsi-pci \
@@ -381,9 +458,16 @@ case "$GPU_MODE" in
   none) log "GPU-Modus none — VM nutzt Standard-VGA + Software-Rendering (llvmpipe).";;
   *) warn "Unbekannter GPU-Modus $GPU_MODE — weiter mit Standard-VGA.";;
 esac
+fi
 
-qm start "$VMID"
-ok "VM $VMID gestartet (onboot: 1)."
+# Guest-Agent per Cloud-Init sicherstellen (Debian-Images haben ihn oft nicht aktiv)
+ensure_agent_snippet
+if qm status "$VMID" 2>/dev/null | grep -q running; then
+  log "VM $VMID läuft bereits."
+else
+  qm start "$VMID"
+  ok "VM $VMID gestartet (onboot: 1)."
+fi
 
 if [[ "$ISO_FALLBACK" == "1" ]]; then
   echo ""
@@ -397,19 +481,7 @@ if [[ "$ISO_FALLBACK" == "1" ]]; then
 fi
 
 # Auf Guest-Agent warten (Cloud-Image bootet 1-3 Min), dann Payload im Hintergrund starten
-log "Warte auf Guest-Agent (bis ~5 Min)…"
-AGENT_OK=0
-for i in $(seq 1 60); do
-  if qm guest cmd "$VMID" ping >/dev/null 2>&1; then AGENT_OK=1; break; fi
-  sleep 5
-  [[ $((i % 6)) -eq 0 ]] && log "… warte noch (Versuch $i/60)"
-done
-if [[ "$AGENT_OK" != "1" ]]; then
-  warn "Guest-Agent antwortet nicht (qemu-guest-agent im Image? Netzwerk/DHCP prüfen: qm config $VMID)."
-  echo "Manuell in der VM (Login $CIUSER, Konsole/SSH):"
-  echo "  bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
-  exit 1
-fi
+wait_guest_agent || exit 1
 ok "Guest-Agent antwortet."
 
 log "Starte Gast-Payload im Hintergrund (Log in VM: /var/log/fc-payload.log)…"
