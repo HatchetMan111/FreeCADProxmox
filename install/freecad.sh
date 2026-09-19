@@ -288,6 +288,8 @@ fi
 [[ $EUID -eq 0 ]] || die "Bitte als root auf dem Proxmox-Host ausführen."
 command -v pct >/dev/null 2>&1 || command -v qm >/dev/null 2>&1 || die " Weder pct noch qm gefunden — auf dem Proxmox-Host ausführen."
 command -v wget >/dev/null 2>&1 || { apt-get update && apt-get install -y wget curl; }
+command -v curl >/dev/null 2>&1 || { apt-get update && apt-get install -y curl; }
+command -v curl >/dev/null 2>&1 || die "curl fehlt auf dem Host und konnte nicht installiert werden (Health-Checks brauchen curl)."
 
 if [[ "$UNINSTALL" == "1" ]]; then
   log "Deinstalliere… (MODE=$MODE)"
@@ -355,6 +357,12 @@ resolve_vmid
 # Helper: Befehl im Gast via Guest-Agent (probiert erst mit, dann ohne "--")
 guest_exec(){
   if qm guest exec "$VMID" -- "$@" >/dev/null 2>&1; then return 0; fi
+  qm guest exec "$VMID" "$@"
+}
+# Wie guest_exec, aber Ausgabe immer sichtbar (Fortschritt/Diagnose, nie schlucken)
+guest_exec_show(){
+  local out=""
+  if out=$(qm guest exec "$VMID" -- "$@" 2>/dev/null); then echo "$out"; return 0; fi
   qm guest exec "$VMID" "$@"
 }
 
@@ -521,13 +529,20 @@ for i in $(seq 1 90); do
   # Alle ~2 Min: Fortschritt aus dem Gast zeigen (Payload-Log + Service-Status)
   if [[ $((i % 12)) -eq 0 ]]; then
     echo "--- Gast-Fortschritt (Versuch $i/90) ---"
-    guest_exec tail -n 5 /var/log/fc-payload.log 2>/dev/null || echo "(Payload-Log noch nicht lesbar)"
-    guest_exec systemctl is-active freecad.service 2>/dev/null || echo "(Manager-Service noch nicht aktiv)"
+    guest_exec_show tail -n 5 /var/log/fc-payload.log || echo "(Payload-Log noch nicht lesbar)"
+    guest_exec_show systemctl is-active freecad.service || echo "(Manager-Service noch nicht aktiv)"
   fi
 done
 echo "=========== PAYLOAD-LOG (vollständig, aus der VM) ==========="
-guest_exec tail -n 100 /var/log/fc-payload.log || true
+guest_exec_show tail -n 100 /var/log/fc-payload.log || echo "(kein Payload-Log im Gast)"
 echo "=========== SERVICE + PORTS (aus der VM) ==========="
-guest_exec systemctl status freecad.service --no-pager 2>/dev/null || true
-guest_exec ss -tlnp 2>/dev/null || guest_exec netstat -tlnp 2>/dev/null || true
+guest_exec_show systemctl status freecad.service --no-pager || true
+guest_exec_show ss -tlnp 2>/dev/null || guest_exec_show netstat -tlnp || true
+echo "=========== GAST-LOKALER CHECK (Netz vs. Service) ==========="
+if guest_exec_show curl -fsS -m 10 "http://localhost:${APP_PORT}/healthz"; then
+  echo "-> Im Gast antwortet die Web UI, vom Host aber nicht: Routing/Firewall zwischen Host und Gast prüfen"
+  echo "   (PVE Datacenter-Firewall? vmbr-Subnetz? Gast-IP $VM_IP vom Host aus pingbar? Teste: ping -c2 $VM_IP)"
+else
+  echo "-> Auch im Gast keine Antwort: Service-Problem — journal in der VM: journalctl -u freecad.service -n 100 --no-pager"
+fi
 die "Web UI antwortet nicht nach ~15 Min. Log oben prüfen; in der VM: journalctl -u freecad.service -n 100 --no-pager. Debug: bash -x … -- --debug"
