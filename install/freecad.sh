@@ -238,11 +238,48 @@ payload_install(){
     apt-get install -y freecadcmd 2>/dev/null || apt-get install -y freecad 2>/dev/null || true
   fi
 
-  # KasmVNC für Browser-Desktop (:6080) — best effort, Manager läuft auch ohne
+  # FreeCAD vollautomatisch fertig installieren (kein Klick im UI nötig):
+  # Smoke-Test, FUSE-freier Extract-Fallback, /usr/local/bin/freecad, .desktop für XFCE
+  if [[ -s /opt/freecad/FreeCAD.AppImage ]]; then
+    if /opt/freecad/FreeCAD.AppImage --appimage-extract-and-run --version >/dev/null 2>&1; then
+      echo "[payload] FreeCAD-AppImage läuft (FUSE OK)."
+    else
+      echo "[payload] Direktstart scheitert (FUSE?) — extrahiere AppImage (läuft ohne FUSE)…"
+      (cd /opt/freecad && ./FreeCAD.AppImage --appimage-extract >/dev/null 2>&1) || echo "[payload] Extract-Warnung, versuche weiter"
+    fi
+    if [[ -x /opt/freecad/squashfs-root/AppRun ]]; then
+      printf '#!/bin/sh\nexec /opt/freecad/squashfs-root/AppRun "$@"\n' > /usr/local/bin/freecad
+    else
+      printf '#!/bin/sh\nexec /opt/freecad/FreeCAD.AppImage --appimage-extract-and-run "$@"\n' > /usr/local/bin/freecad
+    fi
+    chmod +x /usr/local/bin/freecad
+    QT_QPA_PLATFORM=offscreen freecad --version 2>&1 | head -2 || echo "[payload] FreeCAD-Versionscheck Warnung"
+    cat > /usr/share/applications/freecad.desktop <<'DESKTOP_EOF'
+[Desktop Entry]
+Name=FreeCAD
+Exec=/usr/local/bin/freecad %F
+Icon=freecad
+Type=Application
+Categories=Graphics;Engineering;
+DESKTOP_EOF
+    echo "[payload] FreeCAD bereit: $(command -v freecad)"
+  fi
+
+  # KasmVNC für Browser-Desktop (:6080) — Version dynamisch via GitHub-API (feste URLs veralten!)
   if ! command -v kasmvncserver >/dev/null 2>&1; then
-    echo "[payload] Installiere KasmVNC (best effort)…"
-    (wget -O /tmp/kasmvnc.deb "https://github.com/kasmtech/KasmVNC/releases/download/v1.3.3/kasmvncserver_bookworm_1.3.3_amd64.deb" \
-      && apt-get install -y /tmp/kasmvnc.deb) || echo "[payload] KasmVNC-Install übersprungen (weiter ohne Desktop-Streaming)"
+    echo "[payload] Installiere KasmVNC…"
+    KASMVNC_DEB_URL=""
+    KASMVNC_API=$(curl -fsSL https://api.github.com/repos/kasmtech/KasmVNC/releases/latest 2>/dev/null || wget -qO- https://api.github.com/repos/kasmtech/KasmVNC/releases/latest 2>/dev/null || true)
+    KASMVNC_DEB_URL=$(echo "$KASMVNC_API" | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*bookworm[^"]*amd64\.deb"' | head -1 | grep -oE 'https://[^"]+' || true)
+    [[ -z "$KASMVNC_DEB_URL" ]] && KASMVNC_DEB_URL="https://github.com/kasmtech/KasmVNC/releases/download/v1.5.0/kasmvncserver_bookworm_1.5.0_amd64.deb"
+    echo "[payload] KasmVNC-URL: $KASMVNC_DEB_URL"
+    if (wget -O /tmp/kasmvnc.deb -c "$KASMVNC_DEB_URL" || curl -fSL -o /tmp/kasmvnc.deb -C - "$KASMVNC_DEB_URL") && apt-get install -y /tmp/kasmvnc.deb; then
+      echo "[payload] KasmVNC OK: $(command -v kasmvncserver)"
+    else
+      echo "[payload] KasmVNC-Install fehlgeschlagen (Manager läuft trotzdem, Desktop später via Manager-UI nachholbar)"
+    fi
+  else
+    echo "[payload] KasmVNC bereits vorhanden: $(command -v kasmvncserver)"
   fi
 
   # Manager-App + venv von GitHub (Fallback: bereits vorhandene main.py behalten = idempotent)
@@ -283,6 +320,14 @@ payload_install(){
   done
   IP=$(hostname -I 2>/dev/null | awk '{print $1}')
   echo "Fertig! Manager: http://${IP}:${APP_PORT}  |  Desktop (KasmVNC): http://${IP}:${DESKTOP_PORT}"
+  # ---- Desktop-Port prüfen (Warnung, kein Abbruch — Manager ist das Pflichtziel) ----
+  if (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -q ":${DESKTOP_PORT} "; then
+    echo "[payload] Desktop-Port ${DESKTOP_PORT} lauscht."
+  else
+    echo "[payload] WARNUNG: nichts auf Port ${DESKTOP_PORT} — Desktop-Status:"
+    systemctl status freecad-desktop.service --no-pager 2>&1 | head -12 || true
+    journalctl -u freecad-desktop.service -n 20 --no-pager 2>&1 | tail -12 || true
+  fi
 }
 
 if [[ "$PAYLOAD_ONLY" == "1" ]]; then
