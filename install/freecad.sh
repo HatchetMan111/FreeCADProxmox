@@ -216,18 +216,24 @@ payload_install(){
   else
     case "${FREECAD_VERSION}" in
       1.0.1) AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.0.1/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage";;
-      1.1.2) AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.2/FreeCAD_1.1.2-conda-Linux-x86_64-py311.AppImage";;
-      1.1.3) AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-conda-Linux-x86_64-py311.AppImage";;
+      1.1.2) AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.2/FreeCAD_1.1.2-Linux-x86_64-py311.AppImage";;
+      1.1.3) AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage";;
       weekly) AI_URL="https://github.com/FreeCAD/FreeCAD-Bundle/releases/download/weekly-builds/FreeCAD_Linux-x86_64-py311.AppImage";;
       *) echo "[payload] Unbekannte Version ${FREECAD_VERSION}, nutze 1.1.3"
-         AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-conda-Linux-x86_64-py311.AppImage";;
+         AI_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage";;
     esac
     if [[ ! -s /opt/freecad/FreeCAD.AppImage ]]; then
-      wget -O /opt/freecad/FreeCAD.AppImage -c "$AI_URL"
+      if wget -O /opt/freecad/FreeCAD.AppImage -c "$AI_URL"; then
+        chmod +x /opt/freecad/FreeCAD.AppImage
+      else
+        echo "[payload] AppImage-Download 404/Fehler — Fallback: apt freecad (Manager läuft trotzdem)"
+        rm -f /opt/freecad/FreeCAD.AppImage
+        apt-get install -y freecad freecad-common || echo "[payload] apt-freecad schlug fehl, weiter mit Manager"
+      fi
     else
       echo "[payload] AppImage existiert bereits, überspringe Download (idempotent)"
+      chmod +x /opt/freecad/FreeCAD.AppImage
     fi
-    chmod +x /opt/freecad/FreeCAD.AppImage
     # Headless-Alias für Manager (freecadcmd aus AppImage extrahieren scheitert oft ohne FUSE -> Fallback apt freecadcmd)
     apt-get install -y freecadcmd 2>/dev/null || apt-get install -y freecad 2>/dev/null || true
   fi
@@ -364,6 +370,26 @@ guest_exec_show(){
   local out=""
   if out=$(qm guest exec "$VMID" -- "$@" 2>/dev/null); then echo "$out"; return 0; fi
   qm guest exec "$VMID" "$@"
+}
+# qga: Gast-Befehl ausführen, QGA-JSON-Hülle (out-data/err-data base64) dekodieren,
+# dekodierte Ausgabe drucken und GAST-Exit-Code zurückgeben (nicht den von qm!).
+qga(){
+  local raw ec
+  if raw=$(qm guest exec "$VMID" -- "$@" 2>/dev/null); then :;
+  elif raw=$(qm guest exec "$VMID" "$@" 2>/dev/null); then :;
+  else echo "(guest exec fehlgeschlagen)"; return 1; fi
+  ec=$(echo "$raw" | grep -oE '"exitcode"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+  if echo "$raw" | python3 -c "
+import json,sys,base64
+d=json.load(sys.stdin)
+out=d.get('out-data',''); err=d.get('err-data','')
+if out: sys.stdout.write(base64.b64decode(out).decode('utf-8','replace'))
+if err: sys.stderr.write(base64.b64decode(err).decode('utf-8','replace'))
+" 2>/dev/null; then
+    return "${ec:-0}"
+  fi
+  echo "$raw"
+  return "${ec:-0}"
 }
 
 # OS-Disk: Debian-Cloud-Image laden + importieren (vollautomatisch, inkl. Cloud-Init).
@@ -529,17 +555,17 @@ for i in $(seq 1 90); do
   # Alle ~2 Min: Fortschritt aus dem Gast zeigen (Payload-Log + Service-Status)
   if [[ $((i % 12)) -eq 0 ]]; then
     echo "--- Gast-Fortschritt (Versuch $i/90) ---"
-    guest_exec_show tail -n 5 /var/log/fc-payload.log || echo "(Payload-Log noch nicht lesbar)"
-    guest_exec_show systemctl is-active freecad.service || echo "(Manager-Service noch nicht aktiv)"
+    qga tail -n 5 /var/log/fc-payload.log || echo "(Payload-Log noch nicht lesbar)"
+    qga systemctl is-active freecad.service || echo "(Manager-Service noch nicht aktiv)"
   fi
 done
 echo "=========== PAYLOAD-LOG (vollständig, aus der VM) ==========="
-guest_exec_show tail -n 100 /var/log/fc-payload.log || echo "(kein Payload-Log im Gast)"
+qga tail -n 100 /var/log/fc-payload.log || echo "(kein Payload-Log im Gast)"
 echo "=========== SERVICE + PORTS (aus der VM) ==========="
-guest_exec_show systemctl status freecad.service --no-pager || true
-guest_exec_show ss -tlnp 2>/dev/null || guest_exec_show netstat -tlnp || true
+qga systemctl status freecad.service --no-pager || true
+qga ss -tlnp 2>/dev/null || qga netstat -tlnp || true
 echo "=========== GAST-LOKALER CHECK (Netz vs. Service) ==========="
-if guest_exec_show curl -fsS -m 10 "http://localhost:${APP_PORT}/healthz"; then
+if qga curl -fsS -m 10 "http://localhost:${APP_PORT}/healthz"; then
   echo "-> Im Gast antwortet die Web UI, vom Host aber nicht: Routing/Firewall zwischen Host und Gast prüfen"
   echo "   (PVE Datacenter-Firewall? vmbr-Subnetz? Gast-IP $VM_IP vom Host aus pingbar? Teste: ping -c2 $VM_IP)"
 else

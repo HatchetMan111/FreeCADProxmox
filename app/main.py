@@ -52,8 +52,8 @@ DEFAULT_CONFIG = {
 
 FREECAD_RELEASES = {
     "1.0.1": "https://github.com/FreeCAD/FreeCAD/releases/download/1.0.1/FreeCAD_1.0.1-conda-Linux-x86_64-py311.AppImage",
-    "1.1.2": "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.2/FreeCAD_1.1.2-conda-Linux-x86_64-py311.AppImage",
-    "1.1.3": "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-conda-Linux-x86_64-py311.AppImage",
+    "1.1.2": "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.2/FreeCAD_1.1.2-Linux-x86_64-py311.AppImage",
+    "1.1.3": "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.3/FreeCAD_1.1.3-Linux-x86_64-py311.AppImage",
     "weekly": "https://github.com/FreeCAD/FreeCAD-Bundle/releases/download/weekly-builds/FreeCAD_Linux-x86_64-py311.AppImage",
 }
 
