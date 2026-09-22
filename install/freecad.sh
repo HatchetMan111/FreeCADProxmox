@@ -275,7 +275,7 @@ payload_install(){
       printf '#!/bin/sh\nexec /opt/freecad/FreeCAD.AppImage --appimage-extract-and-run "$@"\n' > /usr/local/bin/freecad
     fi
     chmod +x /usr/local/bin/freecad
-    QT_QPA_PLATFORM=offscreen freecad --version 2>&1 | head -2 || echo "[payload] FreeCAD-Versionscheck Warnung"
+    QT_QPA_PLATFORM=offscreen freecad --version 2>&1 | head -2 || echo "[payload] FreeCAD-Versionscheck Warnung (headless normal, läuft trotzdem im Desktop)"
     cat > /usr/share/applications/freecad.desktop <<'DESKTOP_EOF'
 [Desktop Entry]
 Name=FreeCAD
@@ -285,6 +285,29 @@ Type=Application
 Categories=Graphics;Engineering;
 DESKTOP_EOF
     echo "[payload] FreeCAD bereit: $(command -v freecad)"
+  fi
+  # FreeCAD auf Desktop + Autostart (egal ob AppImage oder apt): Icon, Autostart, Menü-Refresh
+  if command -v freecad >/dev/null 2>&1; then
+    FC_BIN="$(command -v freecad)"
+    mkdir -p /root/Desktop /root/.config/autostart
+    cat > /root/Desktop/FreeCAD.desktop <<DESKTOP2_EOF
+[Desktop Entry]
+Name=FreeCAD
+Exec=$FC_BIN %F
+Icon=freecad
+Type=Application
+Categories=Graphics;Engineering;
+DESKTOP2_EOF
+    chmod +x /root/Desktop/FreeCAD.desktop
+    # Als vertrauenswürdig markieren (sonst startet XFCE es nicht per Doppelklick)
+    gio set /root/Desktop/FreeCAD.desktop metadata::trusted true 2>/dev/null || true
+    # Autostart beim Desktop-Login (löschen zum Deaktivieren: rm /root/.config/autostart/freecad.desktop)
+    cp /root/Desktop/FreeCAD.desktop /root/.config/autostart/freecad.desktop
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+    echo "[payload] FreeCAD-Icon auf Desktop + Autostart aktiv ($FC_BIN)."
+  else
+    echo "[payload] WARNUNG: kein freecad-Binary gefunden (weder AppImage noch apt)!"
   fi
 
   # KasmVNC für Browser-Desktop (:6080) — Version dynamisch via GitHub-API (feste URLs veralten!)
