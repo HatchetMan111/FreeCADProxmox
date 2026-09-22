@@ -331,6 +331,12 @@ XSTARTUP_EOF
   systemctl daemon-reload
   systemctl enable freecad.service freecad-desktop.service || true
   systemctl restart freecad.service
+  # Alte verwaiste Xvnc-Prozesse (:99) killen — sonst blockieren sie den Neustart (Display belegt)
+  systemctl stop freecad-desktop.service 2>/dev/null || true
+  kasmvncserver -kill :99 2>/dev/null || true
+  pkill -f "Xvnc :99" 2>/dev/null || true
+  sleep 2
+  rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
   # Desktop nur starten wenn kasmvnc da ist, sonst läuft Manager trotzdem
   systemctl restart freecad-desktop.service || echo "[payload] Desktop-Service wartet auf KasmVNC (Manager läuft trotzdem)"
 
