@@ -6,6 +6,7 @@ Lokale FreeCAD-Anwendung auf Proxmox VE im Stil der **Proxmox VE Community Scrip
 - **App:** Python/FastAPI, läuft vollständig lokal, keine Cloud
 - **Web-UI (Manager):** `http://<IP>:8080` — Dashboard, FreeCAD-Install (Version wählbar), Datei-Upload/Headless-Info, **VM-/LXC-Installer mit Weboberfläche** (Modus, ID, CPU/RAM/Disk/Storage/Bridge/GPU — alles einstellbar), GPU/vGPU-Status, Logs
 - **Desktop nutzen:** `http://<IP>:6080` — XFCE + FreeCAD im Browser (KasmVNC), dort konstruieren wie lokal
+  (Login-frei via `-disableBasicAuth` + `-SecurityTypes None` — nur für vertrauenswürdiges LAN gedacht!).
 - **FreeCAD-Quelle:** https://github.com/FreeCAD/FreeCAD/releases (Stable **1.1.3**, auch 1.0.1/1.1.2/weekly; Linux-AppImage)
 - **Repo-Layout (GitHub-first):** `app/` · `install/freecad.sh` · `systemd/` · `README.md`
 

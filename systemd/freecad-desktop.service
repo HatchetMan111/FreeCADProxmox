@@ -1,5 +1,5 @@
 [Unit]
-Description=FreeCAD Desktop via KasmVNC (:6080)
+Description=FreeCAD Desktop via KasmVNC (:6080, Login-frei im LAN)
 After=network-online.target freecad.service
 Wants=network-online.target
 
@@ -8,8 +8,10 @@ Type=simple
 User=root
 Environment=DISPLAY=:99
 ExecStartPre=-/bin/sh -c 'rm -f /tmp/.X99-lock'
-# KasmVNC stellt XFCE+FreeCAD im Browser bereit. Falls kasmvnc fehlt, läuft der Service in Retry.
-ExecStart=/bin/sh -c 'if command -v kasmvncserver >/dev/null; then kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -SecurityTypes None -- /usr/bin/startxfce4; else echo "kasmvnc fehlt - siehe README §4/§5"; sleep 30; exit 1; fi'
+# -disableBasicAuth: volle Lese-/Schreibrechte ohne Web-Login (nur für vertrauenswürdiges LAN!).
+# printf '2...': beantwortet den First-Run-Wizard (Write-User-Auswahl) non-interaktiv,
+# falls noch kein KasmVNC-User existiert (Payload legt zusätzlich einen per vncpasswd an).
+ExecStart=/bin/sh -c "printf '2\n2\n2\n' | kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -disableBasicAuth -SecurityTypes None -- /usr/bin/startxfce4"
 Restart=always
 RestartSec=10
 StandardOutput=journal

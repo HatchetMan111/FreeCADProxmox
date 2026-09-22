@@ -281,6 +281,14 @@ DESKTOP_EOF
   else
     echo "[payload] KasmVNC bereits vorhanden: $(command -v kasmvncserver)"
   fi
+  # KasmVNC-Write-User non-interaktiv vorbelegen (verhindert First-Run-Wizard;
+  # falls vncpasswd ein TTY erzwingt, beantwortet der Service den Wizard per stdin).
+  # Login: freecad/freecad — mit -disableBasicAuth im Service ist der Desktop im LAN direkt offen!
+  if command -v vncpasswd >/dev/null 2>&1; then
+    printf 'freecad\nfreecad\n' | vncpasswd -u freecad -r -w >/dev/null 2>&1 \
+      && echo "[payload] KasmVNC-User freecad angelegt." \
+      || echo "[payload] vncpasswd-Vorbelegung übersprungen (Wizard-Antwort via Service-Stdin aktiv)"
+  fi
 
   # Manager-App + venv von GitHub (Fallback: bereits vorhandene main.py behalten = idempotent)
   if [[ ! -s /opt/freecad-manager/main.py ]] || [[ "${FORCE_REFETCH:-0}" == "1" ]]; then
