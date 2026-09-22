@@ -5,7 +5,7 @@ Lokale FreeCAD-Anwendung auf Proxmox VE im Stil der **Proxmox VE Community Scrip
 
 - **App:** Python/FastAPI, läuft vollständig lokal, keine Cloud
 - **Web-UI (Manager):** `http://<IP>:8080` — Dashboard, FreeCAD-Install (Version wählbar), Datei-Upload/Headless-Info, **VM-/LXC-Installer mit Weboberfläche** (Modus, ID, CPU/RAM/Disk/Storage/Bridge/GPU — alles einstellbar), GPU/vGPU-Status, Logs
-- **Desktop nutzen:** `http://<IP>:6080` — XFCE + FreeCAD im Browser (KasmVNC), dort konstruieren wie lokal
+- **Desktop nutzen:** `https://<IP>:6080` (HTTPS mit selbstsigniertem Zertifikat — im Browser einmal akzeptieren!) — XFCE + FreeCAD im Browser (KasmVNC), dort konstruieren wie lokal
   (Login-frei via `-disableBasicAuth` + `-SecurityTypes None` — nur für vertrauenswürdiges LAN gedacht!).
 - **FreeCAD-Quelle:** https://github.com/FreeCAD/FreeCAD/releases (Stable **1.1.3**, auch 1.0.1/1.1.2/weekly; Linux-AppImage)
 - **Repo-Layout (GitHub-first):** `app/` · `install/freecad.sh` · `systemd/` · `README.md`
@@ -70,7 +70,7 @@ Erwartete Ausgabe (VM, neu):
 [OK] VM 201 gestartet (onboot: 1).
 [OK] Guest-Agent antwortet.
 [OK] Web UI antwortet.
-Fertig! Manager: http://192.168.1.61:8080  |  Desktop (KasmVNC): http://192.168.1.61:6080
+Fertig! Manager: http://192.168.1.61:8080  |  Desktop (KasmVNC, https): https://192.168.1.61:6080
 ```
 
 > **Alte kaputte VM 200 (leere Disk, kein OS) aufräumen:** `qm stop 200; qm destroy 200` — danach Einzeiler erneut laufen lassen (nimmt automatisch die nächste freie ID). Die `WARNING: thin pools…`-Meldungen sind harmlos (Overprovisioning-Hinweis von LVM). VM-Login per Konsole: `root` / `freecad` (Cloud-Init, `--ciuser`/`--cipass`, nach Install ändern).
@@ -78,7 +78,7 @@ Fertig! Manager: http://192.168.1.61:8080  |  Desktop (KasmVNC): http://192.168.
 Erwartete Ausgabe (Payload in VM/LXC):
 ```
 [OK] Service läuft, Web UI antwortet.
-Fertig! Manager: http://192.168.1.60:8080  |  Desktop (KasmVNC): http://192.168.1.60:6080
+Fertig! Manager: http://192.168.1.60:8080  |  Desktop (KasmVNC, https): https://192.168.1.60:6080
 ```
 
 ## 3. Web-UI — alles einstellen & nutzen

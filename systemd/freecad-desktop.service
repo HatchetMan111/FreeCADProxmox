@@ -1,5 +1,5 @@
 [Unit]
-Description=FreeCAD Desktop via KasmVNC (:6080, Login-frei im LAN)
+Description=FreeCAD Desktop via KasmVNC (https :6080, Login-frei im LAN)
 After=network-online.target freecad.service
 Wants=network-online.target
 
@@ -10,11 +10,13 @@ Environment=DISPLAY=:99
 Environment=HOME=/root
 ExecStartPre=-/bin/sh -c 'rm -f /tmp/.X99-lock'
 # WICHTIG: kein "--"-Trenner (Xvnc stirbt mit "Unrecognized option: --")!
+# -fg: Xvnc im Vordergrund (ohne forked systemd in Restart-Loop, Manpage!).
 # Session via -xstartup (eigene Datei vom Payload, kein DE-Raten, kein Prompt).
 # -disableBasicAuth: volle Rechte ohne Web-Login (nur vertrauenswürdiges LAN!).
 # printf '2...': beantwortet den First-Run-Wizard (Write-User-Auswahl) non-interaktiv,
 # falls noch kein KasmVNC-User existiert (Payload legt zusätzlich einen per vncpasswd an).
-ExecStart=/bin/sh -c "printf '2\n2\n2\n' | kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -disableBasicAuth -SecurityTypes None -xstartup /root/.vnc/xstartup-freecad"
+# Hinweis: KasmVNC spricht HTTPS (selbstsigniert) — im Browser Zertifikat akzeptieren!
+ExecStart=/bin/sh -c "printf '2\n2\n2\n' | kasmvncserver :99 -fg -geometry 1600x900 -websocketPort 6080 -disableBasicAuth -SecurityTypes None -xstartup /root/.vnc/xstartup-freecad"
 Restart=always
 RestartSec=10
 StandardOutput=journal

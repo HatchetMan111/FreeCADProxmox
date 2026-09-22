@@ -244,7 +244,7 @@ def api_desktop(action: str):
         r2 = run(["systemctl", action, "kasmvnc.service"], timeout=60)
         cfg = load_config()
         return {"ok": r1["exit"] == 0, "desktop": r1, "novnc": r2,
-                "hint": f"Desktop im Browser: http://<IP>:{cfg.get('desktop_port', 6080)}",
+                "hint": f"Desktop im Browser (https, Zertifikat akzeptieren): https://<IP>:{cfg.get('desktop_port', 6080)}",
                 "freecad": freecad_info()}
     except Exception as e:
         return err_response(e, f"desktop_{action}")
@@ -457,7 +457,7 @@ function tab(id,btn){document.querySelectorAll('.tabs button').forEach(b=>b.clas
 async function j(u,o){const r=await fetch(u,o);const t=await r.text();try{return JSON.parse(t)}catch(e){return {raw:t,status:r.status}}}
 async function refresh(){const s=await j('/api/status');document.getElementById('status').textContent=JSON.stringify(s,null,2).slice(0,12000);
 try{document.getElementById('fcver').innerHTML='<small>'+(s.freecad.version||s.freecad.binary||'FreeCAD fehlt')+'</small>'}catch(e){}
-const port=(s.config&&s.config.desktop_port)||6080;document.getElementById('deskLink').href='http://'+location.hostname+':'+port;}
+const port=(s.config&&s.config.desktop_port)||6080;document.getElementById('deskLink').href='https://'+location.hostname+':'+port;}
 async function installFc(){const v=document.getElementById('cfg-ver').value;
 document.getElementById('status').textContent='installiere '+v+' … (kann Minuten dauern, AppImage ~800MB)';
 const r=await j('/api/freecad/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:v})});

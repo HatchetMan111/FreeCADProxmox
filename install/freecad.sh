@@ -352,7 +352,7 @@ XSTARTUP_EOF
     fi
   done
   IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-  echo "Fertig! Manager: http://${IP}:${APP_PORT}  |  Desktop (KasmVNC): http://${IP}:${DESKTOP_PORT}"
+  echo "Fertig! Manager: http://${IP}:${APP_PORT}  |  Desktop (KasmVNC, https!): https://${IP}:${DESKTOP_PORT}"
   # ---- Desktop-Port prüfen (Warnung, kein Abbruch — Manager ist das Pflichtziel) ----
   if (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -q ":${DESKTOP_PORT} "; then
     echo "[payload] Desktop-Port ${DESKTOP_PORT} lauscht."
@@ -622,7 +622,7 @@ for i in $(seq 1 90); do
   fi
   if [[ -n "$VM_IP" ]] && curl -fsS "http://${VM_IP}:${APP_PORT}/healthz" >/dev/null 2>&1; then
     ok "Web UI antwortet."
-    echo "Fertig! Manager: http://${VM_IP}:${APP_PORT}  |  Desktop (KasmVNC): http://${VM_IP}:${DESKTOP_PORT}"
+    echo "Fertig! Manager: http://${VM_IP}:${APP_PORT}  |  Desktop (KasmVNC, https!): https://${VM_IP}:${DESKTOP_PORT}"
     echo "VM-Login (Cloud-Init): user=$CIUSER — Passwort bitte nach Install ändern!"
     exit 0
   fi
