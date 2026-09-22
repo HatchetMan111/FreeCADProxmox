@@ -201,6 +201,21 @@ wait_guest_agent(){
 }
 
 # ================= Gast-Payload (idempotent, läuft in LXC *und* VM/Debian) =================
+# fetch_fresh: GitHub-raw mit Retry gegen CDN-Staleness (Marker muss in Datei stehen)
+fetch_fresh(){
+  local dest="$1" path="$2" marker="$3" i
+  for i in 1 2 3 4 5; do
+    wget -q -O "$dest" "${GITHUB_BASE}/${path}?cb=$(date +%s)-$i" 2>/dev/null || \
+    wget -q -O "$dest" "${GITHUB_BASE}/${path}" 2>/dev/null || { sleep 3; continue; }
+    if [[ -z "$marker" ]] || grep -q "$marker" "$dest" 2>/dev/null; then
+      return 0
+    fi
+    echo "[payload] CDN liefert alte Version von $path (Versuch $i/5) — retry…"
+    sleep 3
+  done
+  echo "[payload] WARNUNG: $path evtl. veraltet (Marker '$marker' fehlt nach 5 Versuchen)"
+  return 0
+}
 payload_install(){
   set -euo pipefail
   echo "[freecad-payload] Starte Gast-Installation (Version: ${FREECAD_VERSION}, Port: ${APP_PORT})"
@@ -302,17 +317,17 @@ XSTARTUP_EOF
 
   # Manager-App + venv von GitHub (Fallback: bereits vorhandene main.py behalten = idempotent)
   if [[ ! -s /opt/freecad-manager/main.py ]] || [[ "${FORCE_REFETCH:-0}" == "1" ]]; then
-    wget -O /opt/freecad-manager/main.py "${GITHUB_BASE}/app/main.py" || echo "[payload] GitHub-Fetch fehlgeschlagen, nutze vorhandene main.py"
+    fetch_fresh /opt/freecad-manager/main.py app/main.py "FreeCAD Proxmox Manager" || echo "[payload] GitHub-Fetch fehlgeschlagen, nutze vorhandene main.py"
   fi
-  wget -O /opt/freecad-manager/requirements.txt "${GITHUB_BASE}/app/requirements.txt" || true
+  fetch_fresh /opt/freecad-manager/requirements.txt app/requirements.txt "fastapi" || true
   if [[ ! -x /opt/freecad-manager/venv/bin/python ]]; then
     python3 -m venv /opt/freecad-manager/venv
   fi
   /opt/freecad-manager/venv/bin/pip install -q -r /opt/freecad-manager/requirements.txt || \
     /opt/freecad-manager/venv/bin/pip install -q fastapi 'uvicorn[standard]' python-multipart
 
-  wget -O /etc/systemd/system/freecad.service "${GITHUB_BASE}/systemd/freecad.service" || echo "[payload] service-fetch fehlgeschlagen"
-  wget -O /etc/systemd/system/freecad-desktop.service "${GITHUB_BASE}/systemd/freecad-desktop.service" || echo "[payload] desktop-service-fetch fehlgeschlagen"
+  fetch_fresh /etc/systemd/system/freecad.service systemd/freecad.service "WantedBy=multi-user.target" || echo "[payload] service-fetch fehlgeschlagen"
+  fetch_fresh /etc/systemd/system/freecad-desktop.service systemd/freecad-desktop.service "xstartup-freecad" || echo "[payload] desktop-service-fetch fehlgeschlagen"
   systemctl daemon-reload
   systemctl enable freecad.service freecad-desktop.service || true
   systemctl restart freecad.service
