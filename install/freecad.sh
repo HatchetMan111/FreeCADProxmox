@@ -289,6 +289,16 @@ DESKTOP_EOF
       && echo "[payload] KasmVNC-User freecad angelegt." \
       || echo "[payload] vncpasswd-Vorbelegung übersprungen (Wizard-Antwort via Service-Stdin aktiv)"
   fi
+  # Eigene xstartup-Datei (deterministisch, kein DE-Prompt; -select-de würde sie überschreiben)
+  mkdir -p /root/.vnc
+  cat > /root/.vnc/xstartup-freecad <<'XSTARTUP_EOF'
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec /usr/bin/startxfce4
+XSTARTUP_EOF
+  chmod +x /root/.vnc/xstartup-freecad
+  echo "[payload] KasmVNC-Session: -xstartup /root/.vnc/xstartup-freecad"
 
   # Manager-App + venv von GitHub (Fallback: bereits vorhandene main.py behalten = idempotent)
   if [[ ! -s /opt/freecad-manager/main.py ]] || [[ "${FORCE_REFETCH:-0}" == "1" ]]; then

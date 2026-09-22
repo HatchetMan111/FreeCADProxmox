@@ -7,11 +7,14 @@ Wants=network-online.target
 Type=simple
 User=root
 Environment=DISPLAY=:99
+Environment=HOME=/root
 ExecStartPre=-/bin/sh -c 'rm -f /tmp/.X99-lock'
-# -disableBasicAuth: volle Lese-/Schreibrechte ohne Web-Login (nur für vertrauenswürdiges LAN!).
+# WICHTIG: kein "--"-Trenner (Xvnc stirbt mit "Unrecognized option: --")!
+# Session via -xstartup (eigene Datei vom Payload, kein DE-Raten, kein Prompt).
+# -disableBasicAuth: volle Rechte ohne Web-Login (nur vertrauenswürdiges LAN!).
 # printf '2...': beantwortet den First-Run-Wizard (Write-User-Auswahl) non-interaktiv,
 # falls noch kein KasmVNC-User existiert (Payload legt zusätzlich einen per vncpasswd an).
-ExecStart=/bin/sh -c "printf '2\n2\n2\n' | kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -disableBasicAuth -SecurityTypes None -- /usr/bin/startxfce4"
+ExecStart=/bin/sh -c "printf '2\n2\n2\n' | kasmvncserver :99 -geometry 1600x900 -websocketPort 6080 -disableBasicAuth -SecurityTypes None -xstartup /root/.vnc/xstartup-freecad"
 Restart=always
 RestartSec=10
 StandardOutput=journal
