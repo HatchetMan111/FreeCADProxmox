@@ -33,6 +33,8 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADPr
 ```bash
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/FreeCADProxmox/main/install/freecad.sh)" -- --payload-only --freecad-version 1.1.3
 ```
+> ⚠️ `--payload-only` läuft **in der VM / im LXC (Gast)**, nie auf dem Proxmox-Host — das Script verweigert den Host aktiv (Exit 2).
+> Frisch nach einem Push (CDN-Cache): Einzeiler mit Cache-Buster `.../freecad.sh?cb=$(date +%s)` aufrufen.
 
 **Debug (volle Fehlerkette, `bash -x`):**
 ```bash

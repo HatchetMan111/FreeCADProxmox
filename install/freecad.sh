@@ -218,6 +218,13 @@ fetch_fresh(){
 }
 payload_install(){
   set -euo pipefail
+  # Schutz: Payload gehört in den GAST (VM/LXC) — niemals auf dem Proxmox-Host ausführen!
+  if [[ -d /etc/pve ]] && (command -v qm >/dev/null 2>&1 || command -v pct >/dev/null 2>&1); then
+    echo "[FEHLER] --payload-only läuft IN DER VM / IM LXC (Gast), nicht auf dem Proxmox-Host!" >&2
+    echo "Richtig: Proxmox-WebUI -> VM-Konsole (oder ssh root@<VM-IP>), dort als root ausführen." >&2
+    echo "Oder alles automatisch: Einzeiler OHNE --payload-only auf dem Host starten." >&2
+    exit 2
+  fi
   echo "[freecad-payload] Starte Gast-Installation (Version: ${FREECAD_VERSION}, Port: ${APP_PORT})"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
@@ -398,6 +405,10 @@ log "Quelle: $GITHUB_BASE (FreeCAD-Upstream: https://github.com/FreeCAD/FreeCAD/
 if [[ "$MODE" == "lxc" ]]; then
   warn "LXC kann kein echtes vGPU/PCIe-Passthrough für FreeCAD-GUI — für volle Leistung VM-Modus nehmen."
   pveam update || true
+  # Neuestes Debian-12-Template dynamisch (feste Versionen verschwinden von den Mirrors!)
+  NEWEST_TPL=$(pveam available --section system 2>/dev/null | grep -oE 'debian-12-standard_[0-9.-]+_amd64\.tar\.zst' | sort -V | tail -1 || true)
+  [[ -n "$NEWEST_TPL" ]] && TEMPLATE="$NEWEST_TPL"
+  log "Template: $TEMPLATE"
   if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -q "$(basename $TEMPLATE .tar.zst | head -c 20)"; then
     log "Lade Template $TEMPLATE…"
     pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" || die "Template-Download fehlgeschlagen"
@@ -426,11 +437,8 @@ if [[ "$MODE" == "lxc" ]]; then
   fi
   pct start "$CTID" || true
   sleep 5
-  CT_IP=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || true)
   log "Installiere Payload in CT $CTID…"
-  # Payload idempotent via pct push/exec (fällt auf curl im Gast zurück)
-  pct push "$CTID" /dev/null /tmp/probe 2>/dev/null || true
-  pct exec "$CTID" -- bash -c "FREECAD_VERSION=$FREECAD_VERSION APP_PORT=$APP_PORT DESKTOP_PORT=$DESKTOP_PORT GITHUB_BASE=$GITHUB_BASE bash -c \"\$(wget -qLO - $GITHUB_BASE/install/freecad.sh)\" -- --payload-only --freecad-version $FREECAD_VERSION"
+  pct exec "$CTID" -- bash -c "FREECAD_VERSION=$FREECAD_VERSION APP_PORT=$APP_PORT DESKTOP_PORT=$DESKTOP_PORT GITHUB_BASE=$GITHUB_BASE bash -c \"\$(wget -qLO - $GITHUB_BASE/install/freecad.sh?cb=\$(date +%s))\" -- --payload-only --freecad-version $FREECAD_VERSION"
   pct exec "$CTID" -- systemctl is-active freecad.service
   pct exec "$CTID" -- curl -fsS "http://localhost:${APP_PORT}/healthz"
   CT_IP=$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}' || echo "?")
@@ -593,7 +601,7 @@ if [[ "$ISO_FALLBACK" == "1" ]]; then
   echo "1) Proxmox-WebUI -> VM $VMID -> Konsole -> Debian installieren."
   echo "2) In der VM (als root):"
   echo "     bash -c \"\$(wget -qLO - ${GITHUB_BASE}/install/freecad.sh)\" -- --payload-only --freecad-version ${FREECAD_VERSION}"
-  echo "3) Danach: Manager http://<VM-IP>:${APP_PORT} | Desktop http://<VM-IP>:${DESKTOP_PORT}"
+  echo "3) Danach: Manager http://<VM-IP>:${APP_PORT} | Desktop https://<VM-IP>:${DESKTOP_PORT} (Zertifikat akzeptieren)"
   echo "=============================================================="
   exit 0
 fi

@@ -364,7 +364,6 @@ def api_installer_run(body: dict):
     """Führt Generierung direkt aus — nur wenn UI auf dem Proxmox-Host läuft (qm/pct vorhanden), sonst Befehle kopieren."""
     try:
         if not (shutil.which("qm") or shutil.which("pct")):
-            gen = (awaitable := None)  # placeholder to keep traceback rich
             return JSONResponse(status_code=409, content={"ok": False,
                 "error": "läuft nicht auf dem Proxmox-Host (kein qm/pct). Befehle aus /api/installer/generate kopieren.",
                 "traceback": "installer_run nur auf Host mit qm/pct möglich."})
