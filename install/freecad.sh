@@ -318,7 +318,8 @@ DESKTOP2_EOF
   apt-get install -y git 2>&1 | tail -1 || echo "[payload] git-Install Warnung"
   mkdir -p /root/.FreeCAD/Mod
   if [[ -d /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/.git ]]; then
-    (cd /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server && git pull --ff-only 2>&1 | tail -2) || echo "[payload] MCP-Addon-Update übersprungen"
+    # Eigener Bind-Patch vorher zurücknehmen, sonst blockiert er git pull
+    (cd /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server && git checkout -- freecad/RobustMCPBridge/freecad_mcp_bridge/blocking_bridge.py 2>/dev/null; git pull --ff-only 2>&1 | tail -2) || echo "[payload] MCP-Addon-Update übersprungen"
   else
     rm -rf /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server
     git clone --depth 1 https://github.com/spkane/freecad-addon-robust-mcp-server.git /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server 2>&1 | tail -2 \
@@ -337,6 +338,14 @@ DESKTOP2_EOF
   done
   [[ -z "$MCP_FCCMD" ]] && MCP_FCCMD="$(command -v freecadcmd || true)"
   MCP_BRIDGE="/root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/freecad/RobustMCPBridge/freecad_mcp_bridge/blocking_bridge.py"
+  # Bridge-Bind: Upstream default localhost -> 0.0.0.0 (sonst nur im Gast erreichbar!). Nur LAN, keine Auth!
+  if grep -q 'host="localhost"' "$MCP_BRIDGE" 2>/dev/null; then
+    sed -i 's/host="localhost"/host="0.0.0.0"/' "$MCP_BRIDGE" && echo "[payload] Bridge-Bind: 0.0.0.0 (LAN, ohne Auth — nur vertrauenswürdiges Netz!)."
+  elif grep -q 'host="0.0.0.0"' "$MCP_BRIDGE" 2>/dev/null; then
+    echo "[payload] Bridge-Bind bereits 0.0.0.0."
+  else
+    echo "[payload] Hinweis: host-Zeile upstream geändert — Bridge evtl. nur localhost."
+  fi
   # XDG-Mod-Pfad zusätzlich verlinken (FreeCAD 1.x sucht auch dort — hilft GUI-Dropdown ebenfalls)
   mkdir -p /root/.local/share/FreeCAD
   ln -sfn /root/.FreeCAD/Mod /root/.local/share/FreeCAD/Mod

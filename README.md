@@ -9,7 +9,7 @@ Lokale FreeCAD-Anwendung auf Proxmox VE im Stil der **Proxmox VE Community Scrip
   (Login-frei via `-disableBasicAuth` + `-SecurityTypes None` — nur für vertrauenswürdiges LAN gedacht!).
 - **FreeCAD-Quelle:** https://github.com/FreeCAD/FreeCAD/releases (Stable **1.1.3**, auch 1.0.1/1.1.2/weekly; Linux-AppImage)
 - **Standard-Addon:** [Robust MCP Suite](https://spkane.github.io/freecad-addon-robust-mcp-server/latest/) (150+ KI-Tools via MCP) — Workbench `~/.FreeCAD/Mod/freecad-addon-robust-mcp-server` + PyPI-Paket `freecad-robust-mcp`. Nutzung: FreeCAD → Workbench **Robust MCP Bridge** → **Start Bridge** (XML-RPC `:9875`), MCP-Client (Claude/Cursor) darauf zeigen. Status im Manager-Dashboard (`freecad.mcp_workbench` / `freecad.mcp_server`).
-- **Headless-MCP (empfohlen, kein Desktop nötig):** `freecad-mcp.service` startet `FreeCADCmd blocking_bridge.py` automatisch → `:9875` (XML-RPC) + `:9876` (Socket). Prüfen: `systemctl is-active freecad-mcp.service`, `ss -tlnp | grep -E '9875|9876`'. Manager-Dashboard zeigt den Service unter `services.mcp`.
+- **Headless-MCP (empfohlen, kein Desktop nötig):** `freecad-mcp.service` startet `FreeCADCmd blocking_bridge.py` automatisch → `:9875` (XML-RPC) + `:9876` (Socket), **Bind `0.0.0.0`** (Upstream-Default `localhost` wird per sed gepatcht — nur LAN, keine Auth!). Prüfen: `systemctl is-active freecad-mcp.service`, `ss -tlnp | grep -E '9875|9876`'. Manager-Dashboard zeigt den Service unter `services.mcp`.
 - **Repo-Layout (GitHub-first):** `app/` · `install/freecad.sh` · `systemd/` · `README.md`
 
 > ✅ Repo: `HatchetMan111/FreeCADProxmox` (Variablen oben in `install/freecad.sh`: `GITHUB_USER`, `GITHUB_REPO`, `GITHUB_BRANCH`).
