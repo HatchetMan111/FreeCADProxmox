@@ -417,6 +417,7 @@ XSTARTUP_EOF
   IP=$(hostname -I 2>/dev/null | awk '{print $1}')
   echo "Fertig! Manager: http://${IP}:${APP_PORT}  |  Desktop (KasmVNC, https!): https://${IP}:${DESKTOP_PORT}"
   # ---- Desktop-Port prüfen (Warnung, kein Abbruch — Manager ist das Pflichtziel) ----
+  sleep 12  # KasmVNC braucht Anlaufzeit (Zertifikate, Xvnc) — sonst false-Warnung
   if (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -q ":${DESKTOP_PORT} "; then
     echo "[payload] Desktop-Port ${DESKTOP_PORT} lauscht."
   else
