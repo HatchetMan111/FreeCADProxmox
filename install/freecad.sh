@@ -228,7 +228,7 @@ payload_install(){
   echo "[freecad-payload] Starte Gast-Installation (Version: ${FREECAD_VERSION}, Port: ${APP_PORT})"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y python3 python3-venv python3-pip wget curl fuse libfuse2 mesa-utils \
+  apt-get install -y python3 python3-venv python3-pip wget curl fuse libfuse2 mesa-utils libxcb-cursor0 \
     xfce4 xfce4-terminal xdg-utils hicolor-icon-theme dbus-x11 2>&1 | tail -5 || true
 
   # FreeCAD: apt (system) oder AppImage aus github.com/FreeCAD/FreeCAD/releases
@@ -328,6 +328,9 @@ DESKTOP2_EOF
   python3 -c "import freecad_mcp; print('[payload] MCP-Serverpaket OK')" 2>&1 | tail -1 || echo "[payload] MCP-Importcheck Warnung"
   [[ -f /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/package.xml ]] \
     && echo "[payload] MCP-Workbench OK: Robust MCP Bridge (FreeCAD: Workbench wählen -> Start Bridge, Port 9875)."
+  # Workbench-Verifikation: Dateien + lädt 1.1.3 sie? (FreeCAD.log der letzten GUI-Sitzung prüfen)
+  echo "[payload] Workbench-Dateien: $(ls /root/.FreeCAD/Mod/ 2>/dev/null | tr '\n' ' ')"
+  grep -il "robust" /root/.FreeCAD/FreeCAD.log 2>/dev/null && echo "[payload] FreeCAD.log kennt Robust (Workbench wurde geladen)." || echo "[payload] Hinweis: FreeCAD nach Install NEU STARTEN (Workbenches nur beim Start eingelesen), dann Dropdown prüfen."
   # KasmVNC für Browser-Desktop (:6080) — Version dynamisch via GitHub-API (feste URLs veralten!)
   if ! command -v kasmvncserver >/dev/null 2>&1; then
     echo "[payload] Installiere KasmVNC…"
@@ -383,6 +386,12 @@ XSTARTUP_EOF
   systemctl stop freecad-desktop.service 2>/dev/null || true
   kasmvncserver -kill :99 2>/dev/null || true
   pkill -f "Xvnc :99" 2>/dev/null || true
+  # Alte FreeCAD-Prozesse killen (sonst läuft evtl. apt-0.20 ohne neue Workbenches weiter)
+  pkill -f "squashfs-root.*FreeCAD" 2>/dev/null || true
+  pkill -f "FreeCAD.AppImage" 2>/dev/null || true
+  pkill -x FreeCAD 2>/dev/null || true
+  # apt-Desktop-Datei entfernen — nur UNSER Icon (AppImage 1.1.3) soll im Menü sein (keine 0.20-Doppelgänger)
+  rm -f /usr/share/applications/org.freecad.FreeCAD.desktop /usr/share/applications/freecad-0.20.desktop 2>/dev/null || true
   sleep 2
   rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
   # Desktop nur starten wenn kasmvnc da ist, sonst läuft Manager trotzdem
