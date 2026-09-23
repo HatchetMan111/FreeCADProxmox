@@ -8,6 +8,7 @@ Lokale FreeCAD-Anwendung auf Proxmox VE im Stil der **Proxmox VE Community Scrip
 - **Desktop nutzen:** `https://<IP>:6080` (HTTPS mit selbstsigniertem Zertifikat — im Browser einmal akzeptieren!) — XFCE + FreeCAD im Browser (KasmVNC), dort konstruieren wie lokal
   (Login-frei via `-disableBasicAuth` + `-SecurityTypes None` — nur für vertrauenswürdiges LAN gedacht!).
 - **FreeCAD-Quelle:** https://github.com/FreeCAD/FreeCAD/releases (Stable **1.1.3**, auch 1.0.1/1.1.2/weekly; Linux-AppImage)
+- **Standard-Addon:** [Robust MCP Suite](https://spkane.github.io/freecad-addon-robust-mcp-server/latest/) (150+ KI-Tools via MCP) — Workbench `~/.FreeCAD/Mod/freecad-addon-robust-mcp-server` + PyPI-Paket `freecad-robust-mcp`. Nutzung: FreeCAD → Workbench **Robust MCP Bridge** → **Start Bridge** (XML-RPC `:9875`), MCP-Client (Claude/Cursor) darauf zeigen. Status im Manager-Dashboard (`freecad.mcp_workbench` / `freecad.mcp_server`).
 - **Repo-Layout (GitHub-first):** `app/` · `install/freecad.sh` · `systemd/` · `README.md`
 
 > ✅ Repo: `HatchetMan111/FreeCADProxmox` (Variablen oben in `install/freecad.sh`: `GITHUB_USER`, `GITHUB_REPO`, `GITHUB_BRANCH`).

@@ -145,6 +145,10 @@ def freecad_info() -> dict:
             out["version"] = (r["stdout"] or r["stderr"])[:500]
             out["version_check"] = r
             break
+    # Standard-Addon: Robust MCP Suite (Workbench + Serverpaket)
+    mcp_wb = Path("/root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/package.xml")
+    out["mcp_workbench"] = mcp_wb.exists()
+    out["mcp_server"] = run(["python3", "-c", "import freecad_mcp; print('ok')"], timeout=30)
     return out
 
 

@@ -310,6 +310,24 @@ DESKTOP2_EOF
     echo "[payload] WARNUNG: kein freecad-Binary gefunden (weder AppImage noch apt)!"
   fi
 
+  # Standard-Addon: FreeCAD Robust MCP Suite (KI-Assistenten via MCP an FreeCAD, 150+ Tools)
+  # - Workbench "Robust MCP Bridge" (Addon-Manager-Paket, Bridge auf Port 9875/xmlrpc)
+  # - PyPI-Serverpaket freecad-robust-mcp (Import: freecad_mcp)
+  # Doku: https://spkane.github.io/freecad-addon-robust-mcp-server/latest/
+  echo "[payload] Installiere Robust-MCP-Addon (Standard)…"
+  apt-get install -y git 2>&1 | tail -1 || echo "[payload] git-Install Warnung"
+  mkdir -p /root/.FreeCAD/Mod
+  if [[ -d /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/.git ]]; then
+    (cd /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server && git pull --ff-only 2>&1 | tail -2) || echo "[payload] MCP-Addon-Update übersprungen"
+  else
+    rm -rf /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server
+    git clone --depth 1 https://github.com/spkane/freecad-addon-robust-mcp-server.git /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server 2>&1 | tail -2 \
+      || echo "[payload] MCP-Addon-Clone fehlgeschlagen (weiter ohne Workbench)"
+  fi
+  pip3 install --break-system-packages -q freecad-robust-mcp 2>&1 | tail -2 || echo "[payload] pip freecad-robust-mcp Warnung"
+  python3 -c "import freecad_mcp; print('[payload] MCP-Serverpaket OK')" 2>&1 | tail -1 || echo "[payload] MCP-Importcheck Warnung"
+  [[ -f /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/package.xml ]] \
+    && echo "[payload] MCP-Workbench OK: Robust MCP Bridge (FreeCAD: Workbench wählen -> Start Bridge, Port 9875)."
   # KasmVNC für Browser-Desktop (:6080) — Version dynamisch via GitHub-API (feste URLs veralten!)
   if ! command -v kasmvncserver >/dev/null 2>&1; then
     echo "[payload] Installiere KasmVNC…"
