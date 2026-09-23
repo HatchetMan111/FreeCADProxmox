@@ -168,6 +168,7 @@ def service_info() -> dict:
         "manager": run(["systemctl", "is-active", "freecad.service"], timeout=10),
         "desktop": run(["systemctl", "is-active", "freecad-desktop.service"], timeout=10),
         "novnc": run(["systemctl", "is-active", "kasmvnc.service"], timeout=10),
+        "mcp": run(["systemctl", "is-active", "freecad-mcp.service"], timeout=10),
     }
 
 

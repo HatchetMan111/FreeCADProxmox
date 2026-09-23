@@ -328,6 +328,50 @@ DESKTOP2_EOF
   python3 -c "import freecad_mcp; print('[payload] MCP-Serverpaket OK')" 2>&1 | tail -1 || echo "[payload] MCP-Importcheck Warnung"
   [[ -f /root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/package.xml ]] \
     && echo "[payload] MCP-Workbench OK: Robust MCP Bridge (FreeCAD: Workbench wählen -> Start Bridge, Port 9875)."
+  # Headless-MCP-Bridge als Service (DAS soll laufen!): FreeCADCmd + blocking_bridge.py -> :9875 xmlrpc, :9876 socket
+  # Doku: https://spkane.github.io/freecad-addon-robust-mcp-server/latest/getting-started/quickstart/ (Option B)
+  echo "[payload] Richte Headless-MCP-Bridge ein (freecad-mcp.service)…"
+  MCP_FCCMD=""
+  for c in /opt/freecad/squashfs-root/usr/bin/FreeCADCmd /usr/bin/freecadcmd; do
+    if [[ -x "$c" ]]; then MCP_FCCMD="$c"; break; fi
+  done
+  [[ -z "$MCP_FCCMD" ]] && MCP_FCCMD="$(command -v freecadcmd || true)"
+  MCP_BRIDGE="/root/.FreeCAD/Mod/freecad-addon-robust-mcp-server/freecad/RobustMCPBridge/freecad_mcp_bridge/blocking_bridge.py"
+  # XDG-Mod-Pfad zusätzlich verlinken (FreeCAD 1.x sucht auch dort — hilft GUI-Dropdown ebenfalls)
+  mkdir -p /root/.local/share/FreeCAD
+  ln -sfn /root/.FreeCAD/Mod /root/.local/share/FreeCAD/Mod
+  if [[ -n "$MCP_FCCMD" && -x "$MCP_FCCMD" && -f "$MCP_BRIDGE" ]]; then
+    cat > /etc/systemd/system/freecad-mcp.service <<MCP_EOF
+[Unit]
+Description=FreeCAD Robust MCP Bridge (headless, :9875 xmlrpc / :9876 socket)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=$MCP_FCCMD $MCP_BRIDGE
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=multi-user.target
+MCP_EOF
+    systemctl daemon-reload
+    systemctl enable freecad-mcp.service || true
+    systemctl restart freecad-mcp.service
+    sleep 8
+    if (ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null) | grep -qE ':(9875|9876) '; then
+      echo "[payload] MCP-Bridge lauscht (:9875 xmlrpc / :9876 socket) mit $MCP_FCCMD."
+    else
+      echo "[payload] WARNUNG: MCP-Bridge antwortet (noch?) nicht — Status:"
+      systemctl status freecad-mcp.service --no-pager 2>&1 | head -12 || true
+      journalctl -u freecad-mcp.service -n 20 --no-pager 2>&1 | tail -12 || true
+    fi
+  else
+    echo "[payload] WARNUNG: MCP-Bridge übersprungen (FreeCADCmd: '${MCP_FCCMD:-fehlt}', Bridge-Datei: $MCP_BRIDGE)"
+  fi
   # Workbench-Verifikation: Dateien + lädt 1.1.3 sie? (FreeCAD.log der letzten GUI-Sitzung prüfen)
   echo "[payload] Workbench-Dateien: $(ls /root/.FreeCAD/Mod/ 2>/dev/null | tr '\n' ' ')"
   grep -il "robust" /root/.FreeCAD/FreeCAD.log 2>/dev/null && echo "[payload] FreeCAD.log kennt Robust (Workbench wurde geladen)." || echo "[payload] Hinweis: FreeCAD nach Install NEU STARTEN (Workbenches nur beim Start eingelesen), dann Dropdown prüfen."
