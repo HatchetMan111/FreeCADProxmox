@@ -316,6 +316,33 @@ def api_gpu():
         return err_response(e, "gpu")
 
 
+@app.get("/api/mcp-config")
+def api_mcp_config():
+    """Fertige MCP-Client-Konfiguration mit echten IPs (Claude Code/Cursor) + Bridge-Status."""
+    try:
+        ip = "127.0.0.1"
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+        bridge = run(["sh", "-c", "ss -tlnp 2>/dev/null | grep -E '9875|9876' || netstat -tlnp 2>/dev/null | grep -E '9875|9876' || echo KEIN-LISTENER"], timeout=15)
+        mcp_json = {"mcpServers": {"freecad": {
+            "command": "freecad-mcp",
+            "env": {"FREECAD_MODE": "xmlrpc", "FREECAD_SOCKET_HOST": ip}}}}
+        return {"ok": True, "guest_ip": ip,
+                "bridge_xmlrpc": f"http://{ip}:9875", "bridge_socket": f"{ip}:9876",
+                "bridge_listener": bridge,
+                "pip_install": "pip install freecad-robust-mcp",
+                "claude_config": mcp_json,
+                "hint": "Auf DEM Rechner mit dem KI-Client: pip-Paket installieren + obiges JSON als .mcp.json / claude_desktop_config.json nutzen. Doku: https://spkane.github.io/freecad-addon-robust-mcp-server/latest/getting-started/configuration/"}
+    except Exception as e:
+        return err_response(e, "mcp_config")
+
+
 @app.get("/api/logs")
 def api_logs():
     try:
@@ -411,6 +438,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px
 <button onclick="tab('cad',this)">FreeCAD &amp; Dateien</button>
 <button onclick="tab('inst',this)">VM / LXC Installer</button>
 <button onclick="tab('gpu',this)">GPU / vGPU</button>
+<button onclick="tab('mcp',this)">KI / MCP</button>
 <button onclick="tab('logs',this)">Logs</button>
 </div>
 
@@ -452,12 +480,16 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border-bottom:1px
 <p><small>Auto: <code>virtio-gl</code> (VM) oder <code>/dev/dri</code> (LXC). Wenn vGPU nicht automatisch geht → <b>README §4</b>: NVIDIA vGPU Manager auf Host, mdev-Typ wählen, <code>qm set VMID --hostpci0 …</code>, Guest-GRID-Treiber.</small></p>
 <button onclick="loadGpu()">Neu laden</button><pre id="gpu"></pre></div>
 
+<div class="card" id="t-mcp" style="display:none"><h3>KI / MCP — Client-Anschluss (Copy-Paste)</h3>
+<p><small>Bridge = XML-RPC/Socket im Gast. Dein KI-Client (Claude Code/Cursor) braucht <b>auf seinem Rechner</b> das Paket <code>freecad-robust-mcp</code> + untenstehende Config mit <code>FREECAD_SOCKET_HOST</code> = Gast-IP.</small></p>
+<button onclick="loadMcp()">Config laden</button><pre id="mcpconf">Button klicken…</pre></div>
+
 <div class="card" id="t-logs" style="display:none"><h3>Logs (komplette Kette, nie nur letzte Zeile)</h3>
 <button onclick="loadLogs()">Neu laden</button><pre id="logs"></pre></div>
 </main>
 <script>
 function tab(id,btn){document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
-['dash','cad','inst','gpu','logs'].forEach(t=>document.getElementById('t-'+t).style.display=(t===id?'block':'none'))}
+['dash','cad','inst','gpu','mcp','logs'].forEach(t=>document.getElementById('t-'+t).style.display=(t===id?'block':'none'))}
 async function j(u,o){const r=await fetch(u,o);const t=await r.text();try{return JSON.parse(t)}catch(e){return {raw:t,status:r.status}}}
 async function refresh(){const s=await j('/api/status');document.getElementById('status').textContent=JSON.stringify(s,null,2).slice(0,12000);
 try{document.getElementById('fcver').innerHTML='<small>'+(s.freecad.version||s.freecad.binary||'FreeCAD fehlt')+'</small>'}catch(e){}
@@ -475,6 +507,7 @@ function instBody(){return {mode:document.getElementById('i-mode').value,ctid:pa
 async function genInst(){const r=await j('/api/installer/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(instBody())});document.getElementById('inst').textContent=JSON.stringify(r,null,2)}
 async function runInst(){const r=await j('/api/installer/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(instBody())});document.getElementById('inst').textContent=JSON.stringify(r,null,2).slice(0,15000)}
 async function loadGpu(){const r=await j('/api/gpu');document.getElementById('gpu').textContent=JSON.stringify(r,null,2).slice(0,15000)}
+async function loadMcp(){const r=await j('/api/mcp-config');document.getElementById('mcpconf').textContent=JSON.stringify(r,null,2).slice(0,8000)}
 async function loadLogs(){const r=await j('/api/logs');document.getElementById('logs').textContent=(r.app_log||'').slice(-6000)+'\\n\\n--- journal manager ---\\n'+JSON.stringify(r.journal_manager,null,2).slice(0,6000)}
 refresh();loadFiles();
 </script></body></html>
